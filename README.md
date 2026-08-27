@@ -1,0 +1,53 @@
+# PR Review Skills
+
+OpenCode skills for thorough, plain-language GitHub pull request reviews. The
+workflow checks out an immutable PR snapshot, confirms its scope with the user,
+runs focused reviewers, validates suspected defects, and injects confirmed
+findings into a local Plannotator review session.
+
+The workflow never posts to GitHub, pushes, commits, stages, or modifies the PR
+checkout. Plannotator feedback must be returned to the OpenCode session, not
+submitted to a GitHub review destination.
+
+## Skills
+
+- `pr-review` is the only user-facing entry point.
+- `pr-review-description` explains the PR before detailed review.
+- Nine focused review skills cover design, correctness, comments and docstrings,
+  side effects, and complexity.
+- `pr-review-validator` investigates uncertain candidate findings.
+- `pr-review-presenter` deduplicates findings and prepares Plannotator input.
+
+## Install
+
+Run:
+
+```bash
+./scripts/install.sh
+```
+
+The installer copies the skill directories to
+`~/.config/opencode/skills/`. Restart OpenCode after installation.
+
+Plannotator must also be available on `PATH`. The official minimal verified
+installation is:
+
+```bash
+curl -fsSL https://plannotator.ai/install.sh | \
+  bash -s -- --minimal --verify-attestation
+```
+
+## Validate
+
+```bash
+./scripts/validate.sh
+opencode debug skill
+```
+
+Reviewers author findings with the bundled
+`skills/pr-review/scripts/write_finding.py` helper, which enforces the finding
+schema. Run it with `--help` for usage; it also validates findings and reviewer
+directories with `--check` and `--check-dir`.
+
+The artifact contract is documented in
+[`docs/contracts/review-artifacts.md`](docs/contracts/review-artifacts.md).

@@ -1,0 +1,5 @@
+VERDICT: rejected
+CLAIM: The new lookup can return a stale record.
+EVIDENCE: Every reachable caller uses the request-scoped store populated immediately before lookup.
+PR_CAUSED: no
+ANCHOR: src/handler.ts:20-20:new

@@ -1,0 +1,15 @@
+{
+  "annotations": [
+    {
+      "source": "pr-review-assistant",
+      "scope": "line",
+      "type": "concern",
+      "filePath": "src/handler.ts",
+      "lineStart": 20,
+      "lineEnd": 20,
+      "side": "new",
+      "text": "[MEDIUM] Missing records still reach the formatter\n\nImpact: Unknown IDs return a server error.\n\nEvidence: The public handler reaches the formatter with undefined.\n\nSuggestion: Return not-found first.",
+      "author": "Logic reviewer"
+    }
+  ]
+}
