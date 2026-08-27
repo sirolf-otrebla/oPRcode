@@ -1,3 +1,7 @@
+# Disclaimer
+
+Most of this repo has been generated with OpenCode, using Deepseek v4 pro and GPT 5.6 Sol as models. Even though I outlined a very detailed detailed plan, pr-review-description what kind of result I wanted and how to reach it, it is still quite likely to find random AI slop inside it.
+
 # PR Review Skills
 
 OpenCode skills for thorough, plain-language GitHub pull request reviews. The

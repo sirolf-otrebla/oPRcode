@@ -11,9 +11,9 @@ or non-PR-caused claims.
 
 ## Inputs
 
-Require `_manifest.md`, `_scope.md`, `_changes.patch`, and one `_status.md` for
-each reviewer: `slap`, `kiss`, `keep_short`, `oop`, `scope`, `logic`,
-`documentation`, `side_effects`, and `complexity`.
+Require `_manifest.md`, `_scope.md`, `_threshold.md`, `_changes.patch`, and one
+`_status.md` for each reviewer: `slap`, `kiss`, `keep_short`, `oop`, `scope`,
+`logic`, `documentation`, `side_effects`, and `complexity`.
 
 Validate status fields and reconcile each finding count. A partial or blocked
 reviewer is usable but must remain an explicit coverage gap.
@@ -34,7 +34,8 @@ Exclude invalid findings rather than guessing repairs.
 
 Merge findings only when one root cause and one fix explain them. Preserve the
 clearest evidence and narrowest valid anchor. Use the strongest justified
-severity. Then apply the user's inclusive threshold in this order:
+severity. Then apply the inclusive threshold read from `_threshold.md` in this
+order:
 
 `critical`, `high`, `medium`, `low`, `nitpick`.
 

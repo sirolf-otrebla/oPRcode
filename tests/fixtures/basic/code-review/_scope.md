@@ -1,6 +1,5 @@
 ---
 confirmed: true
-minimum_severity: medium
 ---
 ## 0. Context
 The sample service maps request IDs to stored records.

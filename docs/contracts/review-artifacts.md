@@ -39,7 +39,6 @@ branch or mutable working tree.
 ```markdown
 ---
 confirmed: true
-minimum_severity: medium
 ---
 ## 0. Context
 ...
@@ -60,7 +59,22 @@ minimum_severity: medium
 ```
 
 The user sees and confirms the final corrected paragraphs before `confirmed`
-becomes true. `minimum_severity` is one allowed severity.
+becomes true. `_scope.md` never contains the severity threshold.
+
+## Severity Threshold
+
+The chosen presentation threshold is stored separately in `_threshold.md`:
+
+```markdown
+---
+minimum_severity: medium
+---
+```
+
+`minimum_severity` is one allowed severity. This file is written by the
+orchestrator and read only by the presenter. Reviewers must never see it; the
+threshold is presentation-only and reviewers still record all confirmed
+severities.
 
 ## Reviewer Status
 

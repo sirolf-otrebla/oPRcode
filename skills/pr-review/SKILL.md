@@ -18,6 +18,7 @@ suspected issues, and show confirmed findings in Plannotator.
 - Review only issues caused or materially exposed by the frozen PR patch.
 - Praise and review formalities are forbidden.
 - Never present speculation as a finding.
+- Never reveal the severity threshold to reviewers; it is presentation-only.
 - Always remove temporary clones, worktrees, artifacts, and review processes.
 
 ## 1. Freeze The PR
@@ -72,10 +73,11 @@ Validate that `0. Context`, `1. Why`, `2. What`, and `3. How` are each at most
 
 Wait for the response. If the user corrects a paragraph, show the final revised
 four paragraphs and ask for confirmation once more. Then write `_scope.md` with
-YAML fields `confirmed: true` and `minimum_severity`, followed by fixed headings
-for the four paragraphs, Additional Context, Focus, Exclusions, and Operational
-Assumptions. The severity is an inclusive presentation threshold; reviewers
-still record all confirmed severities.
+YAML field `confirmed: true`, followed by fixed headings for the four
+paragraphs, Additional Context, Focus, Exclusions, and Operational Assumptions.
+Write the chosen severity to a separate `_threshold.md` with the single YAML
+field `minimum_severity`. The threshold is presentation-only: reviewers must
+never see it and still record all confirmed severities.
 
 ## 3. Run Nine Reviewers
 
@@ -87,7 +89,8 @@ the only supported way reviewers author findings.
 Launch these subagents in parallel. Each prompt must say to load its named skill
 first and must provide the temporary repository path, manifest, scope, patch,
 exclusive output directory, and the helper path
-`code-review/_write_finding.py`.
+`code-review/_write_finding.py`. Never pass the severity threshold or
+`_threshold.md` to any reviewer; reviewers must not know the threshold.
 
 | Reviewer | Skill | Output directory |
 | --- | --- | --- |
@@ -123,8 +126,9 @@ Delegate one subagent with this instruction:
 
 ```text
 First load pr-review-presenter and follow it. Use only the frozen manifest,
-scope, patch, nine reviewer status files, and confirmed finding files. Write
-code-review/final_review.md and code-review/external_annotations.json.
+scope, threshold, patch, nine reviewer status files, and confirmed finding
+files. Write code-review/final_review.md and
+code-review/external_annotations.json.
 ```
 
 The presenter validates anchors, merges duplicate root causes, applies the
