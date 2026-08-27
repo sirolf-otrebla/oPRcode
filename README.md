@@ -47,6 +47,8 @@ rather than directly on your own host.
 - Python 3 — runs the bundled `write_finding.py` finding helper.
 - A POSIX shell (`bash`) — for `scripts/install.sh` and `scripts/validate.sh`.
 
+Of course it is very easy to ask Claude or some other agent to adapt the skills to your own setup, if it differs from  the one here described. 
+
 ## Install
 
 Run:
