@@ -245,8 +245,11 @@ def item_id(material):
     return "I-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
-def parse_patch(text):
-    require(text.strip(), "patch is empty")
+def forbid_frontmatter(text, label):
+    require(not text.lstrip().startswith("---"), f"{label}: frontmatter is forbidden")
+
+
+def split_patch_blocks(text):
     lines = text.splitlines()
     blocks = []
     start = None
@@ -257,80 +260,118 @@ def parse_patch(text):
             start = index
     require(start is not None, "patch has no 'diff --git' entries")
     blocks.append(lines[start:])
-    items = []
-    for block in blocks:
-        raw_old, raw_new = diff_paths(block[0])
-        old_path = None if raw_old == "/dev/null" else raw_old
-        new_path = None if raw_new == "/dev/null" else raw_new
-        if raw_new == "/dev/null" or any(
-                line.startswith("deleted file mode ") for line in block[1:]):
-            new_path = None
-        for parsed in (old_path, new_path):
-            if parsed is not None:
-                valid_repo_path(parsed)
-        rename_from = rename_to = copy_from = copy_to = None
-        binary = False
-        modes = []
-        hunks = []
-        for index, line in enumerate(block[1:], 1):
-            if line.startswith("rename from "):
-                rename_from = git_path(line[12:])
-            elif line.startswith("rename to "):
-                rename_to = git_path(line[10:])
-            elif line.startswith("copy from "):
-                copy_from = git_path(line[10:])
-            elif line.startswith("copy to "):
-                copy_to = git_path(line[8:])
-            elif line.startswith(("old mode ", "new mode ", "new file mode ", "deleted file mode ")):
-                modes.append(line)
-            elif line.startswith("Binary files ") or line == "GIT binary patch":
-                binary = True
-            elif line.startswith("@@ "):
-                match = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
-                require(match is not None, f"malformed hunk header: {line}")
-                end = index + 1
-                while end < len(block) and not block[end].startswith(("@@ ", "diff --git ")):
-                    end += 1
-                hunks.append((line, block[index:end], match.groups()))
-        display_path = rename_to or copy_to or new_path or old_path
-        require(display_path is not None, f"change has no display path: {block[0]}")
-        display_path = valid_repo_path(display_path)
-        if hunks:
-            for header, hunk_lines, groups in hunks:
-                old_start, old_count, new_start, new_count = groups
-                old_count = old_count or "1"
-                new_count = new_count or "1"
-                material = "hunk\0" + (old_path or "") + "\0" + (new_path or "") + "\0" + "\n".join(hunk_lines)
-                items.append({
-                    "id": item_id(material), "path": display_path, "change": "hunk",
-                    "old_path": old_path, "new_path": new_path,
-                    "old": f"{old_start},{old_count}", "new": f"{new_start},{new_count}",
-                    "detail": header,
-                })
-        else:
-            changes = []
-            if binary:
-                changes.append("binary")
-            if rename_from is not None or rename_to is not None:
-                require(rename_from is not None and rename_to is not None, "incomplete rename metadata")
-                changes.append("rename")
-            if copy_from is not None or copy_to is not None:
-                require(copy_from is not None and copy_to is not None, "incomplete copy metadata")
-                changes.append("copy")
-            if modes:
-                changes.append("mode")
-            require(changes, f"hunkless change has no binary, rename/copy, or mode metadata: {display_path}")
-            detail = "; ".join(filter(None, [
-                f"{rename_from} -> {rename_to}" if rename_from else "",
-                f"{copy_from} -> {copy_to}" if copy_from else "",
-                ", ".join(modes),
-            ])) or "binary content"
-            material = "hunkless\0" + (old_path or "") + "\0" + (new_path or "") + "\0" + "\n".join(block[1:])
-            items.append({
-                "id": item_id(material), "path": display_path, "change": "+".join(changes),
-                "old_path": old_path, "new_path": new_path,
-                "old": "None", "new": "None", "detail": detail,
-            })
+    return blocks
+
+
+def parse_metadata_line(line):
+    for prefix, width in (("rename from ", 12), ("rename to ", 10),
+                          ("copy from ", 10), ("copy to ", 8)):
+        if line.startswith(prefix):
+            return prefix[:-1], git_path(line[width:])
+    if line.startswith(("old mode ", "new mode ", "new file mode ", "deleted file mode ")):
+        return "mode", line
+    if line.startswith("Binary files ") or line == "GIT binary patch":
+        return "binary", line
+    return None, None
+
+
+def classify_block(block, old_path, new_path):
+    rename_from = rename_to = copy_from = copy_to = None
+    binary = False
+    modes = []
+    hunks = []
+    for index, line in enumerate(block[1:], 1):
+        kind, value = parse_metadata_line(line)
+        if kind == "rename from":
+            rename_from = value
+        elif kind == "rename to":
+            rename_to = value
+        elif kind == "copy from":
+            copy_from = value
+        elif kind == "copy to":
+            copy_to = value
+        elif kind == "mode":
+            modes.append(value)
+        elif kind == "binary":
+            binary = True
+        elif line.startswith("@@ "):
+            match = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
+            require(match is not None, f"malformed hunk header: {line}")
+            end = index + 1
+            while end < len(block) and not block[end].startswith(("@@ ", "diff --git ")):
+                end += 1
+            hunks.append((line, block[index:end], match.groups()))
+    return {
+        "rename_from": rename_from, "rename_to": rename_to,
+        "copy_from": copy_from, "copy_to": copy_to,
+        "binary": binary, "modes": modes, "hunks": hunks,
+    }
+
+
+def hunk_item(display_path, old_path, new_path, metadata):
+    header, hunk_lines, groups = metadata
+    old_start, old_count, new_start, new_count = groups
+    old_count = old_count or "1"
+    new_count = new_count or "1"
+    material = "hunk\0" + (old_path or "") + "\0" + (new_path or "") + "\0" + "\n".join(hunk_lines)
+    return {
+        "id": item_id(material), "path": display_path, "change": "hunk",
+        "old_path": old_path, "new_path": new_path,
+        "old": f"{old_start},{old_count}", "new": f"{new_start},{new_count}",
+        "detail": header,
+    }
+
+
+def hunkless_item(display_path, old_path, new_path, block, metadata):
+    changes = []
+    if metadata["binary"]:
+        changes.append("binary")
+    if metadata["rename_from"] is not None or metadata["rename_to"] is not None:
+        require(metadata["rename_from"] is not None and metadata["rename_to"] is not None,
+                "incomplete rename metadata")
+        changes.append("rename")
+    if metadata["copy_from"] is not None or metadata["copy_to"] is not None:
+        require(metadata["copy_from"] is not None and metadata["copy_to"] is not None,
+                "incomplete copy metadata")
+        changes.append("copy")
+    if metadata["modes"]:
+        changes.append("mode")
+    require(changes, f"hunkless change has no binary, rename/copy, or mode metadata: {display_path}")
+    detail = "; ".join(filter(None, [
+        f"{metadata['rename_from']} -> {metadata['rename_to']}" if metadata["rename_from"] else "",
+        f"{metadata['copy_from']} -> {metadata['copy_to']}" if metadata["copy_to"] else "",
+        ", ".join(metadata["modes"]),
+    ])) or "binary content"
+    material = "hunkless\0" + (old_path or "") + "\0" + (new_path or "") + "\0" + "\n".join(block[1:])
+    return {
+        "id": item_id(material), "path": display_path, "change": "+".join(changes),
+        "old_path": old_path, "new_path": new_path,
+        "old": "None", "new": "None", "detail": detail,
+    }
+
+
+def parse_block(block):
+    raw_old, raw_new = diff_paths(block[0])
+    old_path = None if raw_old == "/dev/null" else raw_old
+    new_path = None if raw_new == "/dev/null" else raw_new
+    if raw_new == "/dev/null" or any(
+            line.startswith("deleted file mode ") for line in block[1:]):
+        new_path = None
+    for parsed in (old_path, new_path):
+        if parsed is not None:
+            valid_repo_path(parsed)
+    metadata = classify_block(block, old_path, new_path)
+    display_path = metadata["rename_to"] or metadata["copy_to"] or new_path or old_path
+    require(display_path is not None, f"change has no display path: {block[0]}")
+    display_path = valid_repo_path(display_path)
+    if metadata["hunks"]:
+        return [hunk_item(display_path, old_path, new_path, hunk) for hunk in metadata["hunks"]]
+    return [hunkless_item(display_path, old_path, new_path, block, metadata)]
+
+
+def parse_patch(text):
+    require(text.strip(), "patch is empty")
+    items = [item for block in split_patch_blocks(text) for item in parse_block(block)]
     ids = [item["id"] for item in items]
     require(len(ids) == len(set(ids)), "patch contains duplicate inventory items")
     return sorted(items, key=lambda item: item["id"])
@@ -354,8 +395,8 @@ def render_inventory(head, merge_base, patch_hash, items):
 
 
 def parse_inventory(text):
+    forbid_frontmatter(text, "_inventory.md")
     require(text.startswith("# Vademecum Inventory\n"), "_inventory.md: invalid title")
-    require("---" not in text, "_inventory.md: frontmatter is forbidden")
     head, merge_base = parse_identity(text, "_inventory.md")
     patch_match = re.search(r"(?m)^## Patch SHA-256\n+([0-9a-f]{64})\s*\n", text)
     require(patch_match is not None, "_inventory.md: missing patch hash")
@@ -483,8 +524,8 @@ def validate_cards(cards, inventory, head, merge_base, expected_identity):
 
 
 def parse_cards_draft(text, inventory, expected_identity):
+    forbid_frontmatter(text, "_draft.md")
     require(text.startswith("# Vademecum Draft\n"), "_draft.md: invalid title")
-    require("---" not in text, "_draft.md: frontmatter is forbidden")
     require(not re.search(r"(?m)^```", text), "_draft.md: fenced data is forbidden")
     head, merge_base = parse_identity(text, "_draft.md")
     card_matches = list(re.finditer(r"(?m)^## Card ([A-Za-z0-9-]+)\s*$", text))
@@ -589,6 +630,7 @@ def prepare(args):
     head, merge_base = parse_identity(manifest, str(args.manifest))
     items = parse_patch(patch)
     output = Path(args.out_dir)
+    restore_interrupted_swap(output)
     if output.exists():
         inspect_tree(output, building=True)
     else:
@@ -623,14 +665,12 @@ def build_outputs(directory, patch_path):
 
 def build(args):
     directory = Path(args.dir)
+    restore_interrupted_swap(directory)
     inspect_tree(directory, building=True)
     require((directory / "_draft.md").is_file(), "missing _draft.md")
     index, cards, seal = build_outputs(directory, args.patch)
-    stage = Path(tempfile.mkdtemp(prefix=".vademecum-build-", dir=directory.parent))
-    backup = Path(tempfile.mkdtemp(prefix=".vademecum-backup-", dir=directory.parent))
-    backup.rmdir()
-    swapped = False
-    try:
+
+    def populate(stage):
         (stage / "cards").mkdir()
         atomic_write(stage / "_inventory.md", read_text(directory / "_inventory.md"))
         atomic_write(stage / "_index.md", index)
@@ -638,17 +678,9 @@ def build(args):
         for relative, text in cards.items():
             atomic_write(stage / relative, text)
         check_directory(stage, args.patch)
-        os.replace(directory, backup)
-        os.replace(stage, directory)
-        swapped = True
-    except BaseException:
-        if backup.exists() and not directory.exists():
-            os.replace(backup, directory)
-        raise
-    finally:
-        shutil.rmtree(stage, ignore_errors=True)
-        if swapped:
-            shutil.rmtree(backup, ignore_errors=True)
+
+    swap_with_backup(directory, populate)
+    atomic_write(seal_hash_path(directory), sha256_text(seal))
     print(f"built {len(cards)} cards in {directory}")
 
 
@@ -678,7 +710,64 @@ def parse_rendered_card(path, card_id):
     }
 
 
-def check_directory(directory, patch_path):
+def seal_hash_path(directory):
+    return Path(str(directory) + ".seal-hash")
+
+
+BACKUP_SUFFIX = ".vademecum-backup"
+
+
+def backup_path(directory):
+    return Path(str(directory) + BACKUP_SUFFIX)
+
+
+def restore_interrupted_swap(directory):
+    """Undo an interrupted swap: a missing target with a backup present means a
+    previous process died between the two renames; move the backup back."""
+    backup = backup_path(directory)
+    if not directory.exists() and backup.is_dir():
+        os.replace(backup, directory)
+
+
+def swap_with_backup(directory, populate):
+    """Atomically replace directory with a freshly staged, verified set.
+
+    A crash between the two renames leaves the deterministic backup sibling in
+    place, which restore_interrupted_swap rolls back on the next invocation.
+    """
+    directory = Path(directory)
+    backup = backup_path(directory)
+    require(not backup.exists(), f"stale backup exists: {backup}")
+    stage = Path(tempfile.mkdtemp(prefix=".vademecum-build-", dir=directory.parent))
+    completed = False
+    try:
+        populate(stage)
+        os.replace(directory, backup)
+        try:
+            os.replace(stage, directory)
+            completed = True
+        except BaseException:
+            print(f"warning: swap failed; verified stage preserved at {stage}",
+                  file=sys.stderr)
+            raise
+    except BaseException:
+        if backup.is_dir() and not directory.exists():
+            os.replace(backup, directory)
+        raise
+    finally:
+        if completed:
+            shutil.rmtree(backup, ignore_errors=True)
+        else:
+            shutil.rmtree(stage, ignore_errors=True)
+
+
+def check_seal_hash(directory, expected_hash):
+    actual = sha256_text(read_text(directory / "_seal.md"))
+    require(actual == expected_hash,
+            f"seal hash mismatch: expected {expected_hash}, found {actual}")
+
+
+def check_directory(directory, patch_path, expected_seal_hash=None):
     directory = Path(directory)
     inspect_tree(directory)
     required = {"_inventory.md", "_index.md", "_seal.md", "cards"}
@@ -704,11 +793,19 @@ def check_directory(directory, patch_path):
         hashes[relative] = sha256_text(read_text(directory / relative))
     expected_seal = render_seal(head, merge_base, cards, coverage, hashes)
     require(read_text(directory / "_seal.md") == expected_seal, "_seal.md identity, coverage, inventory, or hashes are invalid")
+    if expected_seal_hash is not None:
+        check_seal_hash(directory, expected_seal_hash)
     return len(cards)
 
 
 def check(args):
-    count = check_directory(args.dir, args.patch)
+    directory = Path(args.dir)
+    restore_interrupted_swap(directory)
+    expected_seal_hash = None
+    hash_file = seal_hash_path(directory)
+    if hash_file.is_file():
+        expected_seal_hash = read_text(hash_file).strip()
+    count = check_directory(directory, args.patch, expected_seal_hash)
     print(f"checked {count} cards in {args.dir}")
 
 

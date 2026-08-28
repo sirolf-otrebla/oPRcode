@@ -1,4 +1,5 @@
 import hashlib
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -422,7 +423,7 @@ class VademecumTests(unittest.TestCase):
 
     def test_rejects_malformed_markdown_heading_order(self):
         self.assert_bad_draft(lambda text, _ids: text.replace("### Facts", "#### Facts"), "headings must")
-        self.assert_bad_draft(lambda text, _ids: text.replace("# Vademecum Draft", "---\n# Vademecum Draft"),
+        self.assert_bad_draft(lambda text, _ids: text.replace("# Vademecum Draft", "///\n# Vademecum Draft"),
                               "invalid title")
 
     def test_check_detects_card_index_and_seal_tampering(self):
@@ -474,6 +475,88 @@ class VademecumTests(unittest.TestCase):
                 self.assertIn("relevant card IDs", normalized)
                 self.assertIn("pr-review-validator", normalized)
                 self.assertIn("user chose legacy fallback", normalized)
+
+    def test_prepare_build_check_survive_triple_dash_in_path_and_fact(self):
+        patch = (
+            "diff --git a/docs/a---b.md b/docs/a---b.md\n"
+            "new file mode 100644\n"
+            "index 1111111..2222222\n"
+            "--- /dev/null\n"
+            "+++ b/docs/a---b.md\n"
+            "@@ -0,0 +1 @@\n"
+            "+x = y---z\n"
+        )
+        ids = self.prepare(patch)
+        self.assertEqual(1, len(ids))
+        inventory = (self.directory / "_inventory.md").read_text(encoding="utf-8")
+        self.assertIn("`docs/a---b.md`", inventory)
+        self.assertIn("@@ -0,0 +1 @@", inventory)
+        cards = [
+            {"id": "OV-001", "kind": "OV", "title": "Overview", "facts": ["Overview."],
+             "anchors": [], "links": ["CH-001"], "covers": []},
+            {"id": "CH-001", "kind": "CH", "title": "Dashes", "facts": ["fact with --- inside."],
+             "anchors": ["docs/a---b.md#L1@new"], "links": ["OV-001"], "covers": ids},
+        ]
+        self.draft(ids, cards=cards)
+        self.run_helper("build", "--dir", self.directory, "--patch", self.patch)
+        self.run_helper("check", "--dir", self.directory, "--patch", self.patch)
+
+    def test_frontmatter_still_rejected_at_document_start(self):
+        self.prepare()
+        ids = self.prepare()
+        self.draft(ids)
+        draft_path = self.directory / "_draft.md"
+        draft_path.write_text("---\nforwarded: true\n---\n" + draft_path.read_text(encoding="utf-8"),
+                              encoding="utf-8")
+        result = self.run_helper(
+            "build", "--dir", self.directory, "--patch", self.patch, success=False)
+        self.assertIn("frontmatter is forbidden", result.stderr)
+
+    def test_check_with_recorded_seal_hash_detects_consistent_tampering(self):
+        self.build_basic()
+        hash_file = Path(str(self.directory) + ".seal-hash")
+        recorded = hash_file.read_text(encoding="utf-8").strip()
+        self.assertEqual(
+            hashlib.sha256((self.directory / "_seal.md").read_bytes()).hexdigest(), recorded)
+        # A second, self-consistent build (different fact) represents an
+        # attacker who regenerated cards, index, and seal with the helper.
+        ids = re.findall(r"^## Item (I-[0-9a-f]{16})$", (
+            self.directory / "_inventory.md").read_text(encoding="utf-8"), re.MULTILINE)
+        original_fact = "The patch changes the selected lines."
+        cards = [
+            {"id": "OV-001", "kind": "OV", "title": "Overview", "facts": ["Overview."],
+             "anchors": [], "links": ["CH-001"], "covers": []},
+            {"id": "CH-001", "kind": "CH", "title": "Changed behavior",
+             "facts": ["TAMPERED fact."],
+             "anchors": ["src/a.py#L1-L2@new"], "links": ["OV-001"], "covers": ids},
+        ]
+        self.draft(ids, cards=cards)
+        self.run_helper("build", "--dir", self.directory, "--patch", self.patch)
+        card = (self.directory / "cards/CH-001.md").read_text(encoding="utf-8")
+        self.assertIn("TAMPERED", card)
+        self.assertNotIn(original_fact, card)
+        # The stale recorded hash anchors the seal outside the writable tree.
+        hash_file.write_text(recorded, encoding="utf-8")
+        result = self.run_helper(
+            "check", "--dir", self.directory, "--patch", self.patch, success=False)
+        self.assertIn("seal hash mismatch", result.stderr)
+        # Without the recorded hash, plain check still validates structure.
+        hash_file.unlink()
+        self.run_helper("check", "--dir", self.directory, "--patch", self.patch)
+
+    def test_interrupted_swap_self_heals_on_next_invocation(self):
+        ids = self.build_basic()
+        backup = Path(str(self.directory) + ".vademecum-backup")
+        # Simulate a crash between the two renames: target gone, backup present.
+        os.replace(self.directory, backup)
+        # Next invocation restores the sealed directory before proceeding.
+        self.run_helper("check", "--dir", self.directory, "--patch", self.patch)
+        self.assertTrue(self.directory.is_dir())
+        self.assertFalse(backup.exists())
+        # Re-author the draft (build consumed it) and rebuild end to end.
+        self.draft(ids)
+        self.run_helper("build", "--dir", self.directory, "--patch", self.patch)
+        self.run_helper("check", "--dir", self.directory, "--patch", self.patch)
 
 
 if __name__ == "__main__":
