@@ -37,11 +37,15 @@ Card block; ``None`` is the empty value for list sections):
 
 Card IDs are ``KIND-NNN`` and KIND must be one of OV, CH, FL, CT, SE, ST, DP,
 TS, DC, SC, or UN. The Kind value must equal the ID prefix. Anchors use
-repository-relative ``path#Lstart@new|old`` or
-``path#Lstart-Lend@new|old`` syntax. Links name
-other cards. Covers name inventory items; only CH cards may cover items, and
-every item must be covered. No YAML, JSON, frontmatter, HTML, or non-Markdown
-files are used inside the vademecum directory.
+repository-relative ``path@new|old``, ``path#Lstart@new|old``, or
+``path#Lstart-Lend@new|old`` syntax. Path-only anchors exist for changes with
+no meaningful line, such as binary, rename, copy, or mode-only items. Links
+name other cards. Covers name inventory items; only CH cards may cover items,
+every item must be covered, and a CH card may only cover items whose target
+path it anchors on the required side (``@new`` for existing paths, ``@old``
+only for deletions). Every changed file must therefore be anchored and
+described somewhere. No YAML, JSON, frontmatter, HTML, or non-Markdown files
+are used inside the vademecum directory.
 
 ``build`` validates the complete draft before replacing generated artifacts,
 then writes ``_index.md``, ``cards/*.md``, and ``_seal.md`` and removes the
@@ -62,7 +66,16 @@ import tempfile
 KINDS = {"OV", "CH", "FL", "CT", "SE", "ST", "DP", "TS", "DC", "SC", "UN"}
 SHA_RE = re.compile(r"[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?")
 CARD_ID_RE = re.compile(r"([A-Z]{2})-([0-9]{3})")
-ANCHOR_RE = re.compile(r"(.+?)#L([1-9][0-9]*)(?:-L([1-9][0-9]*))?@(new|old)")
+ANCHOR_RE = re.compile(r"(.+?)(?:#L([1-9][0-9]*)(?:-L([1-9][0-9]*))?)?@(new|old)")
+
+
+def parse_anchor(anchor):
+    """Return (path, start_line, end_line, side) or raise ContractError."""
+    match = ANCHOR_RE.fullmatch(anchor)
+    require(match is not None, f"invalid anchor: {anchor}")
+    path = match.group(1)
+    require(not path.endswith("#"), f"invalid anchor: {anchor}")
+    return path, match.group(2), match.group(3), match.group(4)
 ITEM_ID_RE = re.compile(r"I-[0-9a-f]{16}")
 TITLE_LIMIT = 80
 FACT_LIMIT = 240
@@ -246,7 +259,15 @@ def parse_patch(text):
     blocks.append(lines[start:])
     items = []
     for block in blocks:
-        old_path, new_path = diff_paths(block[0])
+        raw_old, raw_new = diff_paths(block[0])
+        old_path = None if raw_old == "/dev/null" else raw_old
+        new_path = None if raw_new == "/dev/null" else raw_new
+        if raw_new == "/dev/null" or any(
+                line.startswith("deleted file mode ") for line in block[1:]):
+            new_path = None
+        for parsed in (old_path, new_path):
+            if parsed is not None:
+                valid_repo_path(parsed)
         rename_from = rename_to = copy_from = copy_to = None
         binary = False
         modes = []
@@ -271,18 +292,18 @@ def parse_patch(text):
                 while end < len(block) and not block[end].startswith(("@@ ", "diff --git ")):
                     end += 1
                 hunks.append((line, block[index:end], match.groups()))
-        display_path = rename_to or copy_to or new_path
-        if display_path == "/dev/null":
-            display_path = old_path
+        display_path = rename_to or copy_to or new_path or old_path
+        require(display_path is not None, f"change has no display path: {block[0]}")
         display_path = valid_repo_path(display_path)
         if hunks:
             for header, hunk_lines, groups in hunks:
                 old_start, old_count, new_start, new_count = groups
                 old_count = old_count or "1"
                 new_count = new_count or "1"
-                material = "hunk\0" + old_path + "\0" + new_path + "\0" + "\n".join(hunk_lines)
+                material = "hunk\0" + (old_path or "") + "\0" + (new_path or "") + "\0" + "\n".join(hunk_lines)
                 items.append({
                     "id": item_id(material), "path": display_path, "change": "hunk",
+                    "old_path": old_path, "new_path": new_path,
                     "old": f"{old_start},{old_count}", "new": f"{new_start},{new_count}",
                     "detail": header,
                 })
@@ -304,9 +325,10 @@ def parse_patch(text):
                 f"{copy_from} -> {copy_to}" if copy_from else "",
                 ", ".join(modes),
             ])) or "binary content"
-            material = "hunkless\0" + old_path + "\0" + new_path + "\0" + "\n".join(block[1:])
+            material = "hunkless\0" + (old_path or "") + "\0" + (new_path or "") + "\0" + "\n".join(block[1:])
             items.append({
                 "id": item_id(material), "path": display_path, "change": "+".join(changes),
+                "old_path": old_path, "new_path": new_path,
                 "old": "None", "new": "None", "detail": detail,
             })
     ids = [item["id"] for item in items]
@@ -322,7 +344,10 @@ def render_inventory(head, merge_base, patch_hash, items):
     for item in items:
         lines.extend([
             f"## Item {item['id']}", "", "### Path", f"`{item['path']}`", "",
-            "### Change", item["change"], "", "### Old Range", item["old"], "",
+            "### Change", item["change"], "",
+            "### Old Path", f"`{item['old_path']}`" if item.get("old_path") else "None", "",
+            "### New Path", f"`{item['new_path']}`" if item.get("new_path") else "None", "",
+            "### Old Range", item["old"], "",
             "### New Range", item["new"], "", "### Detail", item["detail"], "",
         ])
     return "\n".join(lines)
@@ -345,11 +370,14 @@ def parse_inventory(text):
         fields = {}
         for heading, value_lines in heading_sections(body, 3):
             fields[heading] = clean_value(value_lines, f"{item} {heading}")
-        require(list(fields) == ["Path", "Change", "Old Range", "New Range", "Detail"],
+        require(list(fields) == ["Path", "Change", "Old Path", "New Path", "Old Range", "New Range", "Detail"],
                 f"_inventory.md: malformed fields for {item}")
-        path = fields["Path"]
-        require(path.startswith("`") and path.endswith("`"), f"{item}: Path must be code quoted")
-        valid_repo_path(path[1:-1], f"{item} path")
+        for key in ("Path", "Old Path", "New Path"):
+            value = fields[key]
+            if value == "None":
+                continue
+            require(value.startswith("`") and value.endswith("`"), f"{item}: {key} must be code quoted")
+            valid_repo_path(value[1:-1], f"{item} {key.lower()}")
         items[item] = fields
     return head, merge_base, patch_match.group(1), items
 
@@ -387,17 +415,31 @@ def parse_facts(lines, label):
 
 
 def validate_anchor(anchor):
-    match = ANCHOR_RE.fullmatch(anchor)
-    require(match is not None, f"invalid anchor: {anchor}")
-    valid_repo_path(match.group(1), "anchor path")
-    if match.group(3):
-        require(int(match.group(3)) >= int(match.group(2)), f"anchor range is reversed: {anchor}")
+    path, start, end, _side = parse_anchor(anchor)
+    valid_repo_path(path, "anchor path")
+    if start and end:
+        require(int(end) >= int(start), f"anchor range is reversed: {anchor}")
 
 
-def validate_cards(cards, inventory_ids, head, merge_base, expected_identity):
+def path_value(fields, key):
+    value = fields[key]
+    require(value == "None" or (value.startswith("`") and value.endswith("`")),
+            f"{key} must be code quoted or None")
+    return None if value == "None" else value[1:-1]
+
+
+def anchor_matches_target(anchors, target_path, required_side):
+    for anchor in anchors:
+        path, _start, _end, side = parse_anchor(anchor)
+        if path == target_path and side == required_side:
+            return True
+    return False
+
+
+def validate_cards(cards, inventory, head, merge_base, expected_identity):
     require((head, merge_base) == expected_identity, "draft identity does not match _inventory.md")
     require(cards, "draft must contain at least one card")
-    coverage = {item: [] for item in inventory_ids}
+    coverage = {item: [] for item in inventory}
     for card_id, card in cards.items():
         match = CARD_ID_RE.fullmatch(card_id)
         require(match is not None, f"invalid card ID: {card_id}")
@@ -422,6 +464,14 @@ def validate_cards(cards, inventory_ids, head, merge_base, expected_identity):
             require(card["kind"] == "CH", f"{card_id}: only CH cards may cover inventory items")
         for item in card["covers"]:
             require(item in coverage, f"{card_id}: unknown inventory item {item}")
+            fields = inventory[item]
+            new_target = path_value(fields, "New Path")
+            if new_target:
+                target, side = new_target, "new"
+            else:
+                target, side = path_value(fields, "Old Path"), "old"
+            require(anchor_matches_target(card["anchors"], target, side),
+                    f"{card_id}: item {item} requires an anchor on `{target}@{side}`")
             coverage[item].append(card_id)
     missing = [item for item, owners in coverage.items() if not owners]
     require(not missing, "inventory items not covered by CH cards: " + ", ".join(missing))
@@ -432,7 +482,7 @@ def validate_cards(cards, inventory_ids, head, merge_base, expected_identity):
     return coverage
 
 
-def parse_draft(text, inventory_ids, expected_identity):
+def parse_cards_draft(text, inventory, expected_identity):
     require(text.startswith("# Vademecum Draft\n"), "_draft.md: invalid title")
     require("---" not in text, "_draft.md: frontmatter is forbidden")
     require(not re.search(r"(?m)^```", text), "_draft.md: fenced data is forbidden")
@@ -459,7 +509,7 @@ def parse_draft(text, inventory_ids, expected_identity):
             "links": parse_list(values["Links"], f"{card_id} Links", CARD_ID_RE),
             "covers": parse_list(values["Covers"], f"{card_id} Covers", ITEM_ID_RE),
         }
-    coverage = validate_cards(cards, inventory_ids, head, merge_base, expected_identity)
+    coverage = validate_cards(cards, inventory, head, merge_base, expected_identity)
     return cards, coverage
 
 
@@ -562,7 +612,7 @@ def validate_inventory_patch(inventory_text, patch_path):
 def build_outputs(directory, patch_path):
     inventory_text = read_text(directory / "_inventory.md")
     head, merge_base, inventory = validate_inventory_patch(inventory_text, patch_path)
-    cards, coverage = parse_draft(read_text(directory / "_draft.md"), set(inventory), (head, merge_base))
+    cards, coverage = parse_cards_draft(read_text(directory / "_draft.md"), inventory, (head, merge_base))
     rendered_cards = {f"cards/{card}.md": render_card(card, cards[card]) for card in sorted(cards)}
     index = render_index(head, merge_base, cards, coverage)
     hashes = {"_inventory.md": sha256_text(inventory_text), "_index.md": sha256_text(index)}
@@ -643,7 +693,7 @@ def check_directory(directory, patch_path):
         card_id = path.stem
         require(CARD_ID_RE.fullmatch(card_id) is not None, f"invalid card filename: {path.name}")
         cards[card_id] = parse_rendered_card(path, card_id)
-    coverage = validate_cards(cards, set(inventory), head, merge_base, (head, merge_base))
+    coverage = validate_cards(cards, inventory, head, merge_base, (head, merge_base))
     expected_index = render_index(head, merge_base, cards, coverage)
     actual_index = read_text(directory / "_index.md")
     require(actual_index == expected_index, "_index.md does not match cards and inventory")

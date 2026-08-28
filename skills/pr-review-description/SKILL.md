@@ -34,8 +34,13 @@ format documented by the helper. Use stable cards with these neutral kinds:
 
 - `OV`: prior context, declared intent or labeled inference, observable change,
   and implementation approach. At least one is required.
-- `CH`: one cohesive base-to-head change unit, changed symbols/files, and the
-  inventory items it covers. Every inventory item must be covered by `CH`.
+- `CH`: one changed file and its base-to-head change; multiple hunks of one
+  file may share a card. A card may only cover inventory items of files it
+  anchors and describes, so every changed file needs its own anchored card.
+  For each changed code file, include a reference fact: which modules import
+  or call it at head, or "no inbound references found at head". If that
+  question stays unresolved after a bounded search, record it as a `UN` card
+  naming the target and the search attempted.
 - `FL`: an execution or data flow from entry point through the changed step to
   an observable boundary or result.
 - `CT`: inputs, outputs, errors, invariants, and compatibility at a contract or
@@ -57,7 +62,9 @@ format documented by the helper. Use stable cards with these neutral kinds:
 
 Create only applicable cards. Keep each fact unique, concrete, and short; link
 instead of repeating it. Use no code snippets. Prefer symbols and
-repository-relative `path#Lstart-Lend@new|old` anchors. A card has at most eight
+repository-relative `path@new|old`, `path#Lstart-Lend@new`, or
+`path#Lstart-Lend@old` anchors; use the `path@new|old` form only when no line
+anchor is meaningful (binary, rename, mode-only). A card has at most eight
 facts and each fact at most 240 characters. Its title is at most 80 characters.
 Do not create empty cards merely to represent a kind.
 

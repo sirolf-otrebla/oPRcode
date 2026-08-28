@@ -51,7 +51,12 @@ vademecum/
 The coordinator runs `_vademecum.py prepare` before delegation.
 `_inventory.md` records the frozen head and merge-base SHAs, patch hash, and a
 stable item ID for every patch hunk or hunkless binary, rename, copy, or mode
-change. Every item must be covered by at least one `CH` card.
+change. Each item records structured `Old Path` and `New Path` sections (the
+literal `None` marks an absent side, such as a deletion). Every item must be
+covered by at least one `CH` card, and a `CH` card may only cover items whose
+target path it anchors on the required side: `@new` for existing paths, `@old`
+only for deletions. Covering therefore means anchoring and describing that
+specific file, so every changed file is named somewhere in the vademecum.
 
 The investigator writes a temporary `_draft.md` using the helper's documented
 heading format. A successful `_vademecum.py build` with the frozen patch path
@@ -90,17 +95,19 @@ Each card has this shape and no additional sections:
 ```
 
 Titles are at most 80 characters. A card has one to eight unique facts, each at
-most 240 characters. Anchors are repository-relative and identify `@new` or
-`@old`. Cards link instead of repeating facts and contain no code snippets,
-findings, suspected problems, risks, reviewer names, priorities, severity,
-praise, recommendations, or threshold information.
+most 240 characters. Anchors are repository-relative and use
+`path@new|old`, `path#Lstart@new|old`, or `path#Lstart-Lend@new|old`; the
+path-only form exists for binary, rename, copy, and mode-only changes with no
+meaningful line. Cards link instead of repeating facts and contain no code
+snippets, findings, suspected problems, risks, reviewer names, priorities,
+severity, praise, recommendations, or threshold information.
 
 Card kinds are factual, not reviewer-specific:
 
 | Kind | Content |
 | --- | --- |
 | `OV` | PR context, declared intent or labeled inference, observable change, and approach |
-| `CH` | One cohesive base-to-head change unit and covered patch items |
+| `CH` | One changed file and its base-to-head change; multiple hunks of a file may share a card. Includes a reference fact: inbound importers/callers at head, or that none were found |
 | `FL` | Execution or data flow from entry point to observable boundary |
 | `CT` | Inputs, outputs, errors, invariants, and compatibility at a boundary |
 | `SE` | State ownership, effects, ordering, lifecycle, cleanup, and concurrency |
@@ -113,7 +120,9 @@ Card kinds are factual, not reviewer-specific:
 
 At least one `OV` and one `CH` card are required. Other kinds are created only
 when applicable. There is no global size cap: bounded facts and deduplication
-control tokens while complete changed-item coverage takes priority.
+control tokens while complete changed-file coverage takes priority. Because
+covering requires anchoring, every changed file appears in `_index.md`, so
+reviewers can spot rewrites of files nothing references anymore.
 
 After sealing, all nine reviewers receive the same directory. They read the
 index first, select cards independently, and do not start with a broad patch or

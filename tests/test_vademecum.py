@@ -224,6 +224,127 @@ class VademecumTests(unittest.TestCase):
         self.run_helper("check", "--dir", self.directory, "--patch", self.patch)
         self.assertIn("[OV-001](OV-001.md)", (self.directory / "cards/CH-001.md").read_text())
 
+    def test_cover_without_matching_anchor_fails(self):
+        ids = self.prepare()
+        cards = [
+            {"id": "OV-001", "kind": "OV", "title": "Overview", "facts": ["Overview."],
+             "anchors": [], "links": ["CH-001"], "covers": []},
+            {"id": "CH-001", "kind": "CH", "title": "Changes", "facts": ["One fact."],
+             "anchors": ["docs/other.py#L1@new"], "links": ["OV-001"], "covers": ids},
+        ]
+        self.draft(ids, cards=cards)
+        result = self.run_helper(
+            "build", "--dir", self.directory, "--patch", self.patch, success=False)
+        self.assertIn("requires an anchor on `src/a.py@new`", result.stderr)
+
+    def test_deletion_requires_old_side_anchor(self):
+        deletion_patch = (
+            "diff --git a/gone.py b/gone.py\n"
+            "deleted file mode 100644\n"
+            "index 1111111..0000000\n"
+            "--- a/gone.py\n"
+            "+++ /dev/null\n"
+            "@@ -1 +0,0 @@\n"
+            "-old\n"
+        )
+        ids = self.prepare(deletion_patch)
+        cards = [
+            {"id": "OV-001", "kind": "OV", "title": "Overview", "facts": ["Overview."],
+             "anchors": [], "links": ["CH-001"], "covers": []},
+            {"id": "CH-001", "kind": "CH", "title": "Deletion", "facts": ["One fact."],
+             "anchors": ["gone.py@old"], "links": ["OV-001"], "covers": ids},
+        ]
+        self.draft(ids, cards=cards)
+        self.run_helper("build", "--dir", self.directory, "--patch", self.patch)
+        self.run_helper("check", "--dir", self.directory, "--patch", self.patch)
+
+        cards[2 - 1]["anchors"] = ["gone.py#L1@new"]
+        self.draft(ids, cards=cards)
+        result = self.run_helper(
+            "build", "--dir", self.directory, "--patch", self.patch, success=False)
+        self.assertIn("requires an anchor on `gone.py@old`", result.stderr)
+
+    def test_rename_requires_new_path_anchor(self):
+        rename_patch = (
+            "diff --git a/old.txt b/new.txt\n"
+            "similarity index 100%\n"
+            "rename from old.txt\n"
+            "rename to new.txt\n"
+        )
+        ids = self.prepare(rename_patch)
+        cards = [
+            {"id": "OV-001", "kind": "OV", "title": "Overview", "facts": ["Overview."],
+             "anchors": [], "links": ["CH-001"], "covers": []},
+            {"id": "CH-001", "kind": "CH", "title": "Rename", "facts": ["One fact."],
+             "anchors": ["new.txt@new"], "links": ["OV-001"], "covers": ids},
+        ]
+        self.draft(ids, cards=cards)
+        self.run_helper("build", "--dir", self.directory, "--patch", self.patch)
+        self.run_helper("check", "--dir", self.directory, "--patch", self.patch)
+
+        cards[1]["anchors"] = ["old.txt@old"]
+        self.draft(ids, cards=cards)
+        result = self.run_helper(
+            "build", "--dir", self.directory, "--patch", self.patch, success=False)
+        self.assertIn("requires an anchor on `new.txt@new`", result.stderr)
+
+    def test_multi_hunk_same_file_card_passes(self):
+        ids = self.prepare()
+        cards = [
+            {"id": "OV-001", "kind": "OV", "title": "Overview", "facts": ["Overview."],
+             "anchors": [], "links": ["CH-001"], "covers": []},
+            {"id": "CH-001", "kind": "CH", "title": "Changes", "facts": ["One fact."],
+             "anchors": ["src/a.py@new"], "links": ["OV-001"], "covers": ids},
+        ]
+        self.draft(ids, cards=cards)
+        self.run_helper("build", "--dir", self.directory, "--patch", self.patch)
+        self.run_helper("check", "--dir", self.directory, "--patch", self.patch)
+
+    def test_path_only_anchor_accepted_for_binary_and_mode(self):
+        ids = self.prepare(SPECIAL_PATCH)
+        inventory = (self.directory / "_inventory.md").read_text(encoding="utf-8")
+        item_by_path = {
+            path: item for item, path in re.findall(
+                r"^## Item (I-[0-9a-f]{16})\n\n### Path\n`([^`]+)`", inventory, re.MULTILINE)}
+        cards = [
+            {"id": "OV-001", "kind": "OV", "title": "Overview", "facts": ["Overview."],
+             "anchors": [], "links": [], "covers": []},
+            {"id": "CH-001", "kind": "CH", "title": "Rename", "facts": ["One fact."],
+             "anchors": ["new.txt@new"], "links": [], "covers": [item_by_path["new.txt"]]},
+            {"id": "CH-002", "kind": "CH", "title": "Binary", "facts": ["One fact."],
+             "anchors": ["image.png@new"], "links": [], "covers": [item_by_path["image.png"]]},
+            {"id": "CH-003", "kind": "CH", "title": "Mode", "facts": ["One fact."],
+             "anchors": ["tool.sh@new"], "links": [], "covers": [item_by_path["tool.sh"]]},
+        ]
+        self.draft(ids, cards=cards)
+        self.run_helper("build", "--dir", self.directory, "--patch", self.patch)
+        self.run_helper("check", "--dir", self.directory, "--patch", self.patch)
+
+    def test_inventory_records_structured_old_and_new_paths(self):
+        self.prepare(SPECIAL_PATCH)
+        inventory = (self.directory / "_inventory.md").read_text(encoding="utf-8")
+        self.assertIn("### Old Path\n`old.txt`", inventory)
+        self.assertIn("### New Path\n`new.txt`", inventory)
+        self.assertIn("### Old Path\n`image.png`", inventory)
+        self.assertIn("### New Path\n`image.png`", inventory)
+        self.assertNotIn("### Old Path\nNone", inventory)
+        self.assertNotIn("### New Path\nNone", inventory)
+
+    def test_inventory_records_deletion_paths(self):
+        deletion_patch = (
+            "diff --git a/gone.py b/gone.py\n"
+            "deleted file mode 100644\n"
+            "index 1111111..0000000\n"
+            "--- a/gone.py\n"
+            "+++ /dev/null\n"
+            "@@ -1 +0,0 @@\n"
+            "-old\n"
+        )
+        self.prepare(deletion_patch)
+        inventory = (self.directory / "_inventory.md").read_text(encoding="utf-8")
+        self.assertIn("### Old Path\n`gone.py`", inventory)
+        self.assertIn("### New Path\nNone", inventory)
+
     def assert_bad_draft(self, mutate, expected=None):
         ids = self.prepare()
         self.draft(ids)
