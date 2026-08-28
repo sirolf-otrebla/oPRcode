@@ -8,8 +8,9 @@ Even though I outlined a very detailed detailed plan, pr-review-description what
 
 OpenCode skills for thorough, plain-language GitHub pull request reviews. The
 workflow checks out an immutable PR snapshot, confirms its scope with the user,
-runs focused reviewers, validates suspected defects, and injects confirmed
-findings into a local Plannotator review session.
+builds one neutral shared vademecum, runs focused reviewers from that context,
+validates suspected defects, and injects confirmed findings into a local
+Plannotator review session.
 
 **The workflow never posts to GitHub**, pushes, commits, stages, or modifies the PR
 checkout. Plannotator feedback is returned to the OpenCode session, leaving to the user adding it to GH.
@@ -32,9 +33,11 @@ rather than directly on your own host.
 ## Skills
 
 - `pr-review` is the only user-facing entry point.
-- `pr-review-description` explains the PR before detailed review.
+- `pr-review-description` explains the PR and builds a Markdown-only vademecum
+  of its changes, call paths, contracts, effects, boundaries, and tests.
 - Nine focused review skills cover design, correctness, comments and docstrings,
-  side effects, and complexity.
+  side effects, and complexity. They read a compact shared index and selected
+  neutral cards instead of independently rescanning the repository.
 - `pr-review-validator` investigates uncertain candidate findings.
 - `pr-review-presenter` deduplicates findings and prepares Plannotator input.
 
@@ -77,6 +80,11 @@ Reviewers author findings with the bundled
 `skills/pr-review/scripts/write_finding.py` helper, which enforces the finding
 schema. Run it with `--help` for usage; it also validates findings and reviewer
 directories with `--check` and `--check-dir`.
+
+The bundled `skills/pr-review/scripts/vademecum.py` helper inventories every
+frozen patch item and validates, renders, seals, and rechecks the shared
+Markdown cards. Validators still inspect frozen source independently before a
+candidate can become a finding.
 
 The artifact contract is documented in
 [`docs/contracts/review-artifacts.md`](docs/contracts/review-artifacts.md).

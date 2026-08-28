@@ -5,8 +5,19 @@ description: Use ONLY when delegated by pr-review to find concrete harm from PR-
 
 # Keep Short Reviewer
 
-Own only `code-review/keep_short/`. Read the frozen manifest, scope, patch, and
-relevant base/head context. Never modify source.
+## Tooling Restriction
+
+Use only plain OpenCode tools and, where this workflow directs it, Plannotator.
+Do not use Octto or any other agent tool, integration, or UI.
+
+Own only `code-review/keep_short/`. If the delegation explicitly says the user
+chose legacy fallback, use the frozen patch and relevant source under this
+method. Otherwise, read the frozen manifest and scope, then read
+`code-review/vademecum/_index.md` first and only the neutral cards needed
+for this method. Do not begin with a broad patch, tree, caller, test, or source
+scan. If one specific required fact is absent or an exact candidate snippet or
+anchor is needed, read only the bounded frozen target. Record its target and
+reason in `_status.md`. Never modify source.
 
 Use 300 lines per file and 40 lines per function as ideals that prompt
 inspection, not limits. Crossing either number is never a finding by itself.
@@ -28,7 +39,8 @@ large unit.
 
 Inventory changed files and logical units, count only to prioritize, then map
 responsibilities and test seams. Delegate each candidate to a fresh subagent
-loading `pr-review-validator`. Write findings only for `confirmed` and
+loading `pr-review-validator`, supplying relevant card IDs when available and
+any bounded fallback evidence. Write findings only for `confirmed` and
 `PR_CAUSED: yes`.
 
 Author every finding with the bundled `write_finding.py` helper supplied in the

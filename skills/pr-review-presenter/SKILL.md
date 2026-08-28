@@ -5,6 +5,11 @@ description: Use ONLY when delegated by pr-review after all reviewers finish to 
 
 # PR Review Presenter
 
+## Tooling Restriction
+
+Use only plain OpenCode tools and, where this workflow directs it, Plannotator.
+Do not use Octto or any other agent tool, integration, or UI.
+
 Finalize artifacts; do not discover findings. Never post to GitHub, launch a
 remote PR review, modify source, or promote rejected, inconclusive, malformed,
 or non-PR-caused claims.

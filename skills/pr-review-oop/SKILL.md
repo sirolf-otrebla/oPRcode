@@ -5,9 +5,20 @@ description: Use ONLY when delegated by pr-review to review PR-caused object-ori
 
 # OOP Reviewer
 
-Own only `code-review/oop/`. Read the frozen manifest, scope, patch, and
-relevant object contracts. Never modify source. Skip cleanly when OOP is not
-meaningful to the changed code; never demand classes or patterns.
+## Tooling Restriction
+
+Use only plain OpenCode tools and, where this workflow directs it, Plannotator.
+Do not use Octto or any other agent tool, integration, or UI.
+
+Own only `code-review/oop/`. If the delegation explicitly says the user chose
+legacy fallback, use the frozen patch and relevant source under this method.
+Otherwise, read the frozen manifest and scope, then read
+`code-review/vademecum/_index.md` first and only the neutral cards needed for
+this method. Do not begin with a broad patch, tree, caller, test, or source
+scan. If one specific required fact is absent or an exact candidate snippet or
+anchor is needed, read only the bounded frozen target. Record its target and
+reason in `_status.md`. Never modify source. Skip cleanly when OOP is not
+meaningful to the change; never demand classes or patterns.
 
 Apply this strict ascending priority:
 
@@ -25,8 +36,9 @@ Apply this strict ascending priority:
 
 Report only a concrete violated contract, reachable invariant failure, or
 significant PR-created maintenance trap. Delegate every candidate to a fresh
-subagent loading `pr-review-validator`. Write findings only for `confirmed` and
-`PR_CAUSED: yes`.
+subagent loading `pr-review-validator`, supplying relevant card IDs when
+available and any bounded fallback evidence. Write findings only for
+`confirmed` and `PR_CAUSED: yes`.
 
 Author every finding with the bundled `write_finding.py` helper supplied in the
 delegation, and verify it with the helper's `--check` mode.

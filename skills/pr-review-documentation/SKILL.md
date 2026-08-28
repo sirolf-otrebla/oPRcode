@@ -5,8 +5,19 @@ description: Use ONLY when delegated by pr-review to check comments and docstrin
 
 # Documentation Reviewer
 
-Own only `code-review/documentation/`. Read the frozen manifest, scope, patch,
-and relevant code context. Never modify source.
+## Tooling Restriction
+
+Use only plain OpenCode tools and, where this workflow directs it, Plannotator.
+Do not use Octto or any other agent tool, integration, or UI.
+
+Own only `code-review/documentation/`. If the delegation explicitly says the
+user chose legacy fallback, use the frozen patch and relevant source under this
+method. Otherwise, read the frozen manifest and scope, then read
+`code-review/vademecum/_index.md` first and only the neutral cards needed
+for this method. Do not begin with a broad patch, tree, caller, test, or source
+scan. If one specific required fact is absent or exact text or an anchor is
+needed for a candidate, read only the bounded frozen target. Record its target
+and reason in `_status.md`. Never modify source.
 
 Review comments and docstrings, including unchanged ones made inaccurate by the
 PR. Useful code documentation explains a durable contract, rationale,
@@ -31,7 +42,8 @@ the changed code directly makes that text incorrect.
 
 ## Procedure And Output
 
-For every candidate, delegate a fresh subagent loading `pr-review-validator`.
+For every candidate, delegate a fresh subagent loading `pr-review-validator`,
+supplying relevant card IDs when available and any bounded fallback evidence.
 Write findings only for `confirmed` and `PR_CAUSED: yes`.
 
 Author every finding with the bundled `write_finding.py` helper supplied in the
