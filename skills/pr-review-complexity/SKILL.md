@@ -5,10 +5,22 @@ description: Use ONLY when delegated by pr-review to investigate PR-caused algor
 
 # Complexity Reviewer
 
-Own only `code-review/complexity/`. Read the frozen manifest, scope, patch, and
-relevant unchanged context. Never modify PR implementation files. A disposable
-worktree may contain only a temporary stress-test harness and generated test
-data, all removed with the worktree.
+## Tooling Restriction
+
+Use only plain OpenCode tools and, where this workflow directs it, Plannotator.
+Do not use Octto or any other agent tool, integration, or UI.
+
+Own only `code-review/complexity/`. If the delegation explicitly says the user
+chose legacy fallback, use the frozen patch and relevant source under this
+method. Otherwise, read the frozen manifest and scope, then read
+`code-review/vademecum/_index.md` first and only the neutral cards needed
+for this method. Do not begin with a broad patch, tree, caller, test, or source
+scan. If one specific required fact is absent, an exact candidate snippet or
+anchor is needed, or a focused experiment below requires it, read only the
+bounded frozen target. Record its target and reason in `_status.md`. Never
+modify PR implementation files. A disposable worktree may contain only a
+temporary stress-test harness and generated test data, all removed with the
+worktree.
 
 ## Relevance Gate
 
@@ -54,8 +66,9 @@ before writing status. Failed cleanup makes status partial.
 
 ## Validation And Output
 
-Delegate every candidate plus derivation, sources, and test evidence to a fresh
-subagent loading `pr-review-validator`. Write findings only for `confirmed` and
+Delegate every candidate plus relevant card IDs when available, derivation,
+sources, bounded fallback evidence, and test evidence to a fresh subagent
+loading `pr-review-validator`. Write findings only for `confirmed` and
 `PR_CAUSED: yes`.
 
 Author every finding with the bundled `write_finding.py` helper supplied in the

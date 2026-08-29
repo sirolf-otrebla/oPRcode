@@ -5,6 +5,11 @@ description: Use ONLY when the user explicitly asks to review a specific GitHub 
 
 # PR Review
 
+## Tooling Restriction
+
+Use only plain OpenCode tools and, where this workflow directs it, Plannotator.
+Do not use Octto or any other agent tool, integration, or UI.
+
 Review one specific GitHub PR through an immutable local snapshot. Explain the
 change simply, confirm scope with the user, run focused reviewers, validate
 suspected issues, and show confirmed findings in Plannotator.
@@ -53,16 +58,40 @@ Only `code-review/` may be written in this checkout.
 
 ## 2. Explain And Interview
 
+Copy this skill's bundled `scripts/vademecum.py` to
+`code-review/_vademecum.py`. Run:
+
+```text
+python3 code-review/_vademecum.py prepare \
+  --manifest code-review/_manifest.md \
+  --patch code-review/_changes.patch \
+  --out-dir code-review/vademecum
+```
+
 Delegate one subagent with this instruction:
 
 ```text
-First load the pr-review-description skill and follow it. Read the frozen
-manifest, patch, PR metadata, and relevant unchanged source. Return only its
-four required paragraphs.
+First load the pr-review-description skill and follow it. The temporary
+repository, frozen manifest, patch, PR metadata, prepared vademecum directory,
+and code-review/_vademecum.py helper are supplied. Investigate the PR once,
+build and check the Markdown-only vademecum, then return only the four required
+paragraphs.
+```
+
+Run:
+
+```text
+python3 code-review/_vademecum.py check --dir code-review/vademecum \
+  --patch code-review/_changes.patch
 ```
 
 Validate that `0. Context`, `1. Why`, `2. What`, and `3. How` are each at most
-300 characters. Show them to the user and ask:
+300 characters. On any paragraph or vademecum error, resume the same task once
+with only the validation diagnostics. If the retry fails, use the `question`
+tool to ask whether to stop or continue with the legacy broad-source workflow;
+never choose the expensive fallback silently.
+
+Show the valid paragraphs to the user and ask:
 
 - Is the description correct? What is missing or wrong?
 - What additional product, operational, or historical context matters?
@@ -72,9 +101,13 @@ Validate that `0. Context`, `1. Why`, `2. What`, and `3. How` are each at most
   nitpick?
 
 Wait for the response. If the user corrects a paragraph, show the final revised
-four paragraphs and ask for confirmation once more. Then write `_scope.md` with
-YAML field `confirmed: true`, followed by fixed headings for the four
-paragraphs, Additional Context, Focus, Exclusions, and Operational Assumptions.
+four paragraphs and ask for confirmation once more. If a correction contradicts
+a technical vademecum fact, resume the investigator to rebuild and reseal the
+vademecum, then check it again before confirmation. Focus, exclusion,
+assumption, and presentation changes belong only in `_scope.md` and do not
+regenerate neutral cards. Then write `_scope.md` with YAML field `confirmed:
+true`, followed by fixed headings for the four paragraphs, Additional Context,
+Focus, Exclusions, and Operational Assumptions.
 Write the chosen severity to a separate `_threshold.md` with the single YAML
 field `minimum_severity`. The threshold is presentation-only: reviewers must
 never see it and still record all confirmed severities.
@@ -87,10 +120,15 @@ repository before dispatching reviewers. It enforces the finding schema and is
 the only supported way reviewers author findings.
 
 Launch these subagents in parallel. Each prompt must say to load its named skill
-first and must provide the temporary repository path, manifest, scope, patch,
-exclusive output directory, and the helper path
-`code-review/_write_finding.py`. Never pass the severity threshold or
-`_threshold.md` to any reviewer; reviewers must not know the threshold.
+first and must provide the temporary repository path, manifest, scope, the same
+sealed `code-review/vademecum/` directory, frozen patch path for bounded
+fallback only, exclusive output directory, and the helper path
+`code-review/_write_finding.py`. Tell each reviewer to start from
+`vademecum/_index.md`, select neutral cards itself, and avoid an initial broad
+patch or repository scan. If the user explicitly chose legacy fallback after
+vademecum failure, say so and provide the former patch/source workflow instead.
+Never pass the severity threshold or `_threshold.md` to any reviewer; reviewers
+must not know the threshold.
 
 | Reviewer | Skill | Output directory |
 | --- | --- | --- |
@@ -111,13 +149,18 @@ verified with its `--check` mode, producing one underscore-named Markdown file
 with title, comment, line range and side, relevant snippet, evidence, severity,
 and fix suggestion.
 
+Each validator delegation receives one candidate, its relevant vademecum card
+IDs when available, any bounded fallback evidence, and the frozen manifest,
+scope, and patch.
 If a reviewer cannot delegate a suspected issue to `pr-review-validator`, it
-returns each candidate as one five-line validator input in its task result and
-marks status partial. The parent delegates one validator per candidate, then
-resumes that same reviewer task with the verdicts so it can finish artifacts.
-An unavailable validator never turns suspicion into a finding.
+returns each candidate as one five-line validator input plus relevant card IDs
+when available in its task result and marks status partial. The parent delegates
+one validator per candidate, then resumes that same reviewer task with the
+verdicts so it can finish artifacts. An unavailable validator never turns
+suspicion into a finding.
 
-Wait for all nine reviewers. Retry one malformed or failed reviewer once. If a
+Wait for all nine reviewers. When a vademecum was used, run its `check` command
+again to detect any mutation. Retry one malformed or failed reviewer once. If a
 reviewer remains partial or blocked, preserve that coverage gap.
 
 ## 4. Consolidate
@@ -181,7 +224,10 @@ dismissal, or structured annotations as the next user input.
 Answer Plannotator questions directly from the frozen evidence. If feedback
 changes presentation, rerun only the presenter and open a fresh local session.
 If it introduces a new technical claim, validate that claim first. Rerun all
-reviewers only when the user changes the agreed scope.
+reviewers only when the user changes the agreed scope. Retain the sealed neutral
+vademecum for focus, exclusion, assumption, or threshold changes. Rebuild it and
+rerun all reviewers if the frozen identity changes or the user corrects one of
+its technical facts.
 
 Finish when the user approves, dismisses, or asks to stop. Report the frozen
 head SHA, severity threshold, confirmed findings, and any coverage gaps. Never

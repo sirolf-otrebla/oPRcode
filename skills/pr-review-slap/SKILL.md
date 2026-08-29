@@ -5,8 +5,19 @@ description: Use ONLY when delegated by pr-review to find PR-caused Single Level
 
 # SLAP Reviewer
 
-Own only `code-review/slap/`. Read the frozen manifest, scope, patch, and enough
-unchanged code to understand changed functions. Never modify source.
+## Tooling Restriction
+
+Use only plain OpenCode tools and, where this workflow directs it, Plannotator.
+Do not use Octto or any other agent tool, integration, or UI.
+
+Own only `code-review/slap/`. If the delegation explicitly says the user chose
+legacy fallback, use the frozen patch and relevant source under this method.
+Otherwise, read the frozen manifest and scope, then read
+`code-review/vademecum/_index.md` first and only the neutral cards needed for
+this method. Do not begin with a broad patch, tree, caller, test, or source
+scan. If one specific required fact is absent or an exact candidate snippet or
+anchor is needed, read only the bounded frozen target. Record its target and
+reason in `_status.md`. Never modify source.
 
 An abstraction level is the distance from intent:
 
@@ -25,9 +36,10 @@ interrupt the story.
 
 ## Procedure And Output
 
-Review every changed function/block. For each candidate, delegate a fresh
-subagent that loads `pr-review-validator` and validates one claim. Write a
-finding only for `confirmed` and `PR_CAUSED: yes`.
+Review every changed function/block represented by the selected cards. For each
+candidate, delegate a fresh subagent that loads `pr-review-validator` and
+validates one claim, supplying relevant card IDs when available and any bounded
+fallback evidence. Write a finding only for `confirmed` and `PR_CAUSED: yes`.
 
 Author every finding with the bundled `write_finding.py` helper supplied in the
 delegation, and verify it with the helper's `--check` mode.

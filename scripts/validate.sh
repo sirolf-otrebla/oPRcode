@@ -53,4 +53,9 @@ done
 helper="$skills_dir/pr-review/scripts/write_finding.py"
 test -f "$helper" || { printf 'missing finding helper: %s\n' "$helper" >&2; exit 1; }
 
+vademecum="$skills_dir/pr-review/scripts/vademecum.py"
+test -f "$vademecum" || { printf 'missing vademecum helper: %s\n' "$vademecum" >&2; exit 1; }
+
+python3 -m unittest discover -s "$repo_root/tests" -p 'test_*.py'
+
 printf 'validated %s skills\n' "${#expected[@]}"
